@@ -1,11 +1,18 @@
 function Sidebar() {
   return (
     <aside className="sidebar">
-      <p>Dashboard</p>
-      <p>Courses</p>
-      <p>Notes</p>
-      <p>Files</p>
+      <nav className="sidebar-nav">
+        <a href="#">Dashboard</a>
+        <a href="#">Courses</a>
+        <a href="#">Notes</a>
+        <a href="#">Files</a>
+      </nav>
+
+      <div className="sidebar-settings">
+        <button>⚙ Settings</button>
+      </div>
     </aside>
   );
 }
+
 export default Sidebar;
