@@ -91,8 +91,18 @@ function Header() {
         >
           Courses
         </NavLink>
-        <span className="nav-link disabled">Notes</span>
-        <span className="nav-link disabled">Files</span>
+        <NavLink
+          to="/notes"
+          className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+        >
+          Notes
+        </NavLink>
+        <NavLink
+          to="/files"
+          className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+        >
+          Files
+        </NavLink>
       </nav>
 
       <div className="header-profile" ref={profileMenuRef}>

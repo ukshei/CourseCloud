@@ -3,6 +3,8 @@ import Header from "./components/Header";
 import CourseCard from "./components/CourseCard";
 import CoursePage from "./pages/CoursePage";
 import CoursesPage from "./pages/CoursesPage";
+import NotesPage from "./pages/NotesPage";
+import FilesPage from "./pages/FilesPage";
 import AuthPage from "./pages/AuthPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -425,6 +427,26 @@ function App() {
                 onDeleteCourse={handleDeleteCourse}
                 onAccessCourse={handleAccessCourse}
               />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Standalone Notes */}
+        <Route
+          path="/notes"
+          element={
+            <ProtectedRoute>
+              <NotesPage courses={courses} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Standalone Files */}
+        <Route
+          path="/files"
+          element={
+            <ProtectedRoute>
+              <FilesPage courses={courses} />
             </ProtectedRoute>
           }
         />

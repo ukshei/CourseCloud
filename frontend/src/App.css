@@ -1522,3 +1522,437 @@ body {
   flex-wrap: wrap;
 }
 
+/* ========== NOTES PAGE ========== */
+
+.notes-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  width: 100%;
+  max-width: 1300px;
+}
+
+/* Individual note card */
+.notes-page-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.notes-page-card:hover {
+  border-color: #d0d0d0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+/* Card header row: course badge + date */
+.notes-page-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Course badge */
+.notes-page-course-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.notes-page-course-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #333;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notes-page-course-name.notes-page-course-unknown {
+  background-color: #999;
+}
+
+.notes-page-course-code {
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
+  background-color: #f0f0f0;
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Date */
+.notes-page-date {
+  font-size: 12px;
+  color: #999;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+/* Note title */
+.notes-page-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* Content preview */
+.notes-page-preview {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.55;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  flex: 1;
+}
+
+/* Action buttons row */
+.notes-page-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.notes-page-action-button {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  white-space: nowrap;
+  background-color: #ffffff;
+}
+
+.notes-page-edit-button {
+  color: #333;
+  border-color: #ddd;
+}
+
+.notes-page-edit-button:hover {
+  background-color: #f5f5f5;
+  border-color: #333;
+}
+
+.notes-page-delete-button {
+  color: #d32f2f;
+  border-color: #ddd;
+}
+
+.notes-page-delete-button:hover {
+  background-color: #ffebee;
+  border-color: #d32f2f;
+}
+
+.notes-page-open-button {
+  color: #666;
+  border-color: #ddd;
+  margin-left: auto;
+}
+
+.notes-page-open-button:hover {
+  color: #333;
+  border-color: #333;
+  background-color: #f5f5f5;
+}
+
+/* No-courses inline notice */
+.notes-page-no-courses {
+  font-size: 14px;
+  color: #999;
+  margin-top: 24px;
+}
+
+.notes-page-inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.notes-page-inline-link:hover {
+  color: #000;
+}
+
+/* Modal overrides for note editor (wider + textarea) */
+.notes-page-modal {
+  max-width: 540px;
+}
+
+.notes-page-select {
+  width: 100%;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.notes-page-select:focus {
+  outline: none;
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(51, 51, 51, 0.05);
+}
+
+.notes-page-select:disabled {
+  background-color: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.notes-page-textarea {
+  width: 100%;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 160px;
+}
+
+.notes-page-textarea:focus {
+  outline: none;
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(51, 51, 51, 0.05);
+}
+
+.notes-page-textarea:disabled {
+  background-color: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .notes-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notes-page-open-button {
+    margin-left: 0;
+  }
+}
+
+/* ========== FILES PAGE ========== */
+
+.files-page-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.files-page-search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+  max-width: 480px;
+}
+
+.files-page-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.files-page-search-input {
+  width: 100%;
+  padding: 10px 36px 10px 36px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.files-page-search-input:focus {
+  outline: none;
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(51, 51, 51, 0.05);
+}
+
+.files-page-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #888;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.files-page-search-clear:hover {
+  color: #333;
+}
+
+.files-page-course-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.files-page-filter-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  white-space: nowrap;
+}
+
+.files-page-select {
+  padding: 10px 36px 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  background-color: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.files-page-select:focus {
+  outline: none;
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(51, 51, 51, 0.05);
+}
+
+.files-page-row {
+  align-items: center;
+}
+
+.files-page-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.files-page-title-row .file-name {
+  margin-bottom: 0;
+}
+
+.files-page-ext-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  background-color: #eee;
+  color: #555;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.files-page-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.files-page-course-button {
+  border-color: #ddd;
+  color: #555;
+}
+
+.files-page-course-button:hover:not(:disabled) {
+  border-color: #333;
+  color: #333;
+  background-color: #f5f5f5;
+}
+
+.files-page-modal {
+  max-width: 520px;
+}
+
+.files-page-file-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+  background-color: #fafafa;
+}
+
+@media (max-width: 768px) {
+  .files-page-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .files-page-search-wrapper {
+    max-width: 100%;
+  }
+
+  .files-page-course-filter {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .files-page-select {
+    flex: 1;
+  }
+}
+
