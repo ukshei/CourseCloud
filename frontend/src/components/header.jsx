@@ -80,11 +80,17 @@ function Header() {
       <nav className="header-nav">
         <NavLink
           to="/"
+          end
           className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
         >
           Dashboard
         </NavLink>
-        <span className="nav-link disabled">Courses</span>
+        <NavLink
+          to="/courses"
+          className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+        >
+          Courses
+        </NavLink>
         <span className="nav-link disabled">Notes</span>
         <span className="nav-link disabled">Files</span>
       </nav>

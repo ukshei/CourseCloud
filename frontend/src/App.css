@@ -372,6 +372,92 @@ body {
   background-color: #444;
 }
 
+/* ========== DASHBOARD — RECENTLY USED ========== */
+
+.dashboard-recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1300px;
+  margin-bottom: 16px;
+}
+
+.dashboard-recent-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+}
+
+.dashboard-view-all-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.dashboard-view-all-button:hover {
+  color: #333;
+}
+
+/* Empty / Get Started state */
+.dashboard-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 20px;
+  width: 100%;
+  max-width: 480px;
+  gap: 12px;
+}
+
+.dashboard-empty-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+}
+
+.dashboard-empty-message {
+  margin: 0;
+  font-size: 15px;
+  color: #999;
+}
+
+.dashboard-get-started-button {
+  margin-top: 8px;
+  padding: 12px 28px;
+  background-color: #333;
+  color: #ffffff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.dashboard-get-started-button:hover {
+  background-color: #555;
+  color: #e09a4f;
+  border-color: #e09a4f;
+}
+
+.dashboard-get-started-button:active {
+  background-color: #444;
+}
+
+
 /* Modal Overlay */
 .modal-overlay {
   position: fixed;
@@ -1365,3 +1451,74 @@ body {
     font-size: 13px;
   }
 }
+
+/* ========== COURSE CARD — DELETE BUTTON ========== */
+
+.course-card-delete-button {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #d32f2f;
+  background-color: transparent;
+  border: 1px solid #d32f2f;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  font-style: normal;
+  text-decoration: none;
+}
+
+.course-card-delete-button:hover {
+  background-color: #d32f2f;
+  color: #ffffff;
+}
+
+.course-card-delete-button:active {
+  opacity: 0.8;
+}
+
+/* ========== MODAL — WARNING TEXT ========== */
+
+.modal-warning {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+/* ========== MODAL — DELETE BUTTON ========== */
+
+.modal-delete-button {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  background-color: #d32f2f;
+  color: #ffffff;
+  border: 1px solid #d32f2f;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.modal-delete-button:hover:not(:disabled) {
+  background-color: #b71c1c;
+  border-color: #b71c1c;
+}
+
+.modal-delete-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ========== COURSE PAGE — ACTION BAR ========== */
+
+.course-page-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+

@@ -1,12 +1,110 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import { supabase } from "../lib/supabaseClient";
 
-function CoursePage({ courses, loading, error }) {
+function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onAccessCourse }) {
   const { courseId } = useParams();
+  const navigate = useNavigate();
 
   const course = courses.find((item) => String(item.id) === courseId);
+
+  // Always use the numeric DB id for Storage paths and DB writes.
+  // courseId from the URL is a string and may not match the numeric id
+  // if the URL was constructed differently (e.g. using the course name).
+  const numericCourseId = course ? Number(course.id) : Number(courseId);
+
+  // course is always up-to-date from shared App state — no local override needed.
+  const displayCourse = course;
+
+  // -------------------------
+  // EDIT COURSE
+  // -------------------------
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editCode, setEditCode] = useState("");
+  const [editingCourse, setEditingCourse] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  function openEditModal() {
+    if (!displayCourse) return;
+    setEditName(displayCourse.name);
+    setEditCode(displayCourse.code);
+    setEditError("");
+    setShowEditModal(true);
+  }
+
+  async function handleSaveCourseEdit(event) {
+    event.preventDefault();
+    setEditError("");
+
+    if (!editName.trim() || !editCode.trim()) {
+      setEditError("Please enter both course name and code.");
+      return;
+    }
+
+    setEditingCourse(true);
+
+    const { error: updateError } = await supabase
+      .from("courses")
+      .update({
+        name: editName.trim(),
+        code: editCode.trim(),
+      })
+      .eq("id", numericCourseId);
+
+    if (updateError) {
+      setEditError(`Failed to update course: ${updateError.message}`);
+      setEditingCourse(false);
+      return;
+    }
+
+    // Propagate the change to the shared App courses state immediately.
+    onEditCourse(numericCourseId, { name: editName.trim(), code: editCode.trim() });
+    setShowEditModal(false);
+    setEditingCourse(false);
+  }
+
+  function cancelEditModal() {
+    setEditName("");
+    setEditCode("");
+    setEditError("");
+    setShowEditModal(false);
+  }
+
+  // -------------------------
+  // DELETE COURSE
+  // -------------------------
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingCourse, setDeletingCourse] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  async function handleConfirmCourseDelete() {
+    setDeleteError("");
+    setDeletingCourse(true);
+
+    const { error: deleteErr } = await supabase
+      .from("courses")
+      .delete()
+      .eq("id", numericCourseId);
+
+    if (deleteErr) {
+      setDeleteError(`Failed to delete course: ${deleteErr.message}`);
+      setDeletingCourse(false);
+      return;
+    }
+
+    // Remove from shared state and navigate away.
+    onDeleteCourse(numericCourseId);
+    navigate("/courses");
+  }
+
+  function cancelDeleteModal() {
+    setDeleteError("");
+    setShowDeleteModal(false);
+  }
 
   // -------------------------
   // FILES
@@ -24,7 +122,7 @@ function CoursePage({ courses, loading, error }) {
     const { data, error: fetchError } = await supabase
       .from("files")
       .select("id, file_name, file_path, created_at")
-      .eq("course_id", Number(courseId));
+      .eq("course_id", numericCourseId);
 
     if (fetchError) {
       setFilesError(fetchError.message);
@@ -55,7 +153,7 @@ function CoursePage({ courses, loading, error }) {
     const { data, error: fetchError } = await supabase
       .from("notes")
       .select("id, title, content, created_at")
-      .eq("course_id", Number(courseId))
+      .eq("course_id", numericCourseId)
       .order("created_at", { ascending: false });
 
     if (fetchError) {
@@ -78,6 +176,25 @@ function CoursePage({ courses, loading, error }) {
     }
   }, [courseId]);
 
+  // Update last_accessed_at when this course page is opened.
+  // Runs once per courseId. Errors are silently ignored so they
+  // don't affect Files/Notes loading.
+  // Also updates shared App state so Dashboard ordering reflects the visit immediately.
+  useEffect(() => {
+    if (!numericCourseId || isNaN(numericCourseId)) return;
+
+    const timestamp = new Date().toISOString();
+
+    supabase
+      .from("courses")
+      .update({ last_accessed_at: timestamp })
+      .eq("id", numericCourseId)
+      .then(() => {
+        // Notify App so the shared courses array reflects the updated timestamp.
+        onAccessCourse(numericCourseId, timestamp);
+      });
+  }, [numericCourseId]);
+
   // -------------------------
   // FILE FUNCTIONS
   // -------------------------
@@ -98,7 +215,17 @@ function CoursePage({ courses, loading, error }) {
     setUploading(true);
     setFilesError("");
 
-    const filePath = `${courseId}/${Date.now()}-${selectedFile.name}`;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setFilesError("You must be signed in to upload files.");
+      setUploading(false);
+      return;
+    }
+
+    const filePath = `${numericCourseId}/${Date.now()}-${selectedFile.name}`;
 
     const { error: uploadError } = await supabase.storage
       .from("course-files")
@@ -111,12 +238,16 @@ function CoursePage({ courses, loading, error }) {
     }
 
     const { error: databaseError } = await supabase.from("files").insert({
-      course_id: Number(courseId),
+      course_id: numericCourseId,
       file_name: selectedFile.name,
       file_path: filePath,
+      user_id: user.id,
     });
 
     if (databaseError) {
+      // Roll back the Storage upload so we don't leave an orphaned file.
+      await supabase.storage.from("course-files").remove([filePath]);
+
       setFilesError(
         `File uploaded, but database record failed: ${databaseError.message}`,
       );
@@ -237,10 +368,21 @@ function CoursePage({ courses, loading, error }) {
         return;
       }
     } else {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setNotesError("You must be signed in to create notes.");
+        setSavingNote(false);
+        return;
+      }
+
       const { error: insertError } = await supabase.from("notes").insert({
-        course_id: Number(courseId),
+        course_id: numericCourseId,
         title: noteTitle.trim(),
         content: noteContent,
+        user_id: user.id,
       });
 
       if (insertError) {
@@ -299,8 +441,28 @@ function CoursePage({ courses, loading, error }) {
           <p>Unable to load course: {error}</p>
         ) : course ? (
           <>
-            <h1>{course.name}</h1>
-            <p>{course.code}</p>
+            <h1>{displayCourse.name}</h1>
+            <p>{displayCourse.code}</p>
+
+            <div className="course-page-actions">
+              <button
+                type="button"
+                className="course-card-edit-button"
+                onClick={openEditModal}
+              >
+                ✎ Edit Course
+              </button>
+              <button
+                type="button"
+                className="course-card-delete-button"
+                onClick={() => {
+                  setDeleteError("");
+                  setShowDeleteModal(true);
+                }}
+              >
+                🗑 Delete Course
+              </button>
+            </div>
 
             {/* FILES */}
 
@@ -525,6 +687,104 @@ function CoursePage({ courses, loading, error }) {
           <h1>Course not found</h1>
         )}
       </main>
+
+      {/* EDIT COURSE MODAL */}
+      {showEditModal && (
+        <div className="modal-overlay" onClick={cancelEditModal}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>Edit Course</h2>
+
+            {editError && <div className="modal-error">{editError}</div>}
+
+            <form onSubmit={handleSaveCourseEdit}>
+              <div className="modal-field">
+                <label htmlFor="course-page-edit-name">Course Name</label>
+                <input
+                  id="course-page-edit-name"
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="e.g., Introduction to Computer Science"
+                  disabled={editingCourse}
+                />
+              </div>
+
+              <div className="modal-field">
+                <label htmlFor="course-page-edit-code">Course Code</label>
+                <input
+                  id="course-page-edit-code"
+                  type="text"
+                  value={editCode}
+                  onChange={(e) => setEditCode(e.target.value)}
+                  placeholder="e.g., CS101"
+                  disabled={editingCourse}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  onClick={cancelEditModal}
+                  disabled={editingCourse}
+                  className="modal-cancel-button"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editingCourse}
+                  className="modal-submit-button"
+                >
+                  {editingCourse ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE COURSE MODAL */}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={cancelDeleteModal}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>Delete this course?</h2>
+
+            <p className="modal-warning">
+              This will permanently delete the course and all of its
+              associated files and notes.
+            </p>
+
+            {deleteError && (
+              <div className="modal-error">{deleteError}</div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={cancelDeleteModal}
+                disabled={deletingCourse}
+                className="modal-cancel-button"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCourseDelete}
+                disabled={deletingCourse}
+                className="modal-delete-button"
+              >
+                {deletingCourse ? "Deleting..." : "Delete Course"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
