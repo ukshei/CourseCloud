@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient";
+import { supabase, getAuthRedirectUrl } from "../lib/supabaseClient";
 
 function AuthPage() {
   const navigate = useNavigate();
@@ -29,6 +29,9 @@ function AuthPage() {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: {
+          emailRedirectTo: getAuthRedirectUrl(),
+        },
       });
 
       if (signUpError) {
