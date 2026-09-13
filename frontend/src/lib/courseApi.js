@@ -4,7 +4,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV
     ? "http://localhost:4000/api"
-    : "http://coursecloud-backend.eba-4nacatym.ap-south-1.elasticbeanstalk.com/api");
+    : "https://coursecloud-tr8o.onrender.com/api");
 
 /**
  * Retrieves the current Supabase session access token and constructs headers.
