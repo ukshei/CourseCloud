@@ -5,10 +5,12 @@ import CoursePage from "./pages/CoursePage";
 import CoursesPage from "./pages/CoursesPage";
 import NotesPage from "./pages/NotesPage";
 import FilesPage from "./pages/FilesPage";
+import SettingsPage from "./pages/SettingsPage";
+import TrashPage from "./pages/TrashPage";
 import AuthPage from "./pages/AuthPage";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
+import { getCourses, updateCourse, deleteCourse } from "./lib/courseApi";
 import "./App.css";
 
 // -------------------------
@@ -17,6 +19,30 @@ import "./App.css";
 
 function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDeleteCourse }) {
   const navigate = useNavigate();
+
+  // Retrieve user for personalized greeting
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCurrentUser(user);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  const displayName =
+    currentUser?.user_metadata?.display_name ||
+    currentUser?.user_metadata?.full_name ||
+    "";
 
   // Derive up to 3 dashboard courses from the shared courses array:
   // 1. Courses with last_accessed_at DESC (opened courses first)
@@ -72,28 +98,24 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
 
     setEditingCourse(true);
 
-    const { error: updateError } = await supabase
-      .from("courses")
-      .update({
+    try {
+      await updateCourse(editingCourseId, {
         name: editName.trim(),
         code: editCode.trim(),
-      })
-      .eq("id", editingCourseId);
+      });
 
-    if (updateError) {
-      setEditError(`Failed to update course: ${updateError.message}`);
+      // Update the shared courses state immediately — no re-fetch needed.
+      onEditCourse(editingCourseId, { name: editName.trim(), code: editCode.trim() });
+
+      setEditName("");
+      setEditCode("");
+      setEditingCourseId(null);
+      setShowEditModal(false);
+    } catch (err) {
+      setEditError(`Failed to update course: ${err.message}`);
+    } finally {
       setEditingCourse(false);
-      return;
     }
-
-    // Update the shared courses state immediately — no re-fetch needed.
-    onEditCourse(editingCourseId, { name: editName.trim(), code: editCode.trim() });
-
-    setEditName("");
-    setEditCode("");
-    setEditingCourseId(null);
-    setShowEditModal(false);
-    setEditingCourse(false);
   }
 
   function handleCancelEdit() {
@@ -109,43 +131,40 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
   // -------------------------
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deletingCourseId, setDeletingCourseId] = useState(null);
+  const [courseToDelete, setCourseToDelete] = useState(null);
   const [deletingCourse, setDeletingCourse] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
   function handleDeleteCourse(courseId) {
-    setDeletingCourseId(courseId);
+    const course = courses.find((c) => c.id === courseId);
+    setCourseToDelete(course);
     setDeleteError("");
     setShowDeleteModal(true);
   }
 
   async function handleConfirmDelete() {
-    setDeleteError("");
+    if (!courseToDelete) return;
+
     setDeletingCourse(true);
+    setDeleteError("");
 
-    const { error: deleteErr } = await supabase
-      .from("courses")
-      .delete()
-      .eq("id", deletingCourseId);
+    try {
+      await deleteCourse(courseToDelete.id);
 
-    if (deleteErr) {
-      setDeleteError(`Failed to delete course: ${deleteErr.message}`);
+      onDeleteCourse(courseToDelete.id);
+      setShowDeleteModal(false);
+      setCourseToDelete(null);
+    } catch (err) {
+      setDeleteError(`Failed to move course to Trash: ${err.message}`);
+    } finally {
       setDeletingCourse(false);
-      return;
     }
-
-    // Remove from shared courses state immediately.
-    onDeleteCourse(deletingCourseId);
-
-    setDeletingCourseId(null);
-    setShowDeleteModal(false);
-    setDeletingCourse(false);
   }
 
   function handleCancelDelete() {
-    setDeleteError("");
-    setDeletingCourseId(null);
     setShowDeleteModal(false);
+    setCourseToDelete(null);
+    setDeleteError("");
   }
 
   // -------------------------
@@ -157,11 +176,11 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
       <Header />
 
       <main className="contents">
-        <div className="dashboard-header">
-          <div>
-            <h1>Welcome Back,</h1>
-            <p>Student workspace</p>
-          </div>
+        <div className="dashboard-welcome">
+          <h1>{displayName ? `Welcome back, ${displayName}` : "Welcome back"}</h1>
+          <p className="dashboard-welcome-desc">
+            Organize your courses, notes, and study files all in one place.
+          </p>
         </div>
 
         {coursesLoading && <p>Loading recent courses...</p>}
@@ -172,28 +191,29 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
 
         {!coursesLoading && !coursesError && courses.length === 0 && (
           <div className="dashboard-empty-state">
-            <h2 className="dashboard-empty-title">Welcome to CourseCloud</h2>
+            <div className="dashboard-empty-icon" aria-hidden="true">📚</div>
+            <h2 className="dashboard-empty-title">No courses yet</h2>
             <p className="dashboard-empty-message">
-              You haven&rsquo;t created any courses yet.
+              Create your first course to get started organizing your notes and files.
             </p>
             <button
               className="dashboard-get-started-button"
               onClick={() => navigate("/courses")}
             >
-              Get Started
+              Create a Course
             </button>
           </div>
         )}
 
         {!coursesLoading && !coursesError && recentCourses.length > 0 && (
-          <>
-            <div className="dashboard-recent-header">
-              <span className="dashboard-recent-label">Recently Used</span>
+          <section className="dashboard-recent-section" aria-label="Recent Courses">
+            <div className="dashboard-section-header">
+              <span className="dashboard-section-label">Recent Courses</span>
               <button
                 className="dashboard-view-all-button"
                 onClick={() => navigate("/courses")}
               >
-                View All Courses →
+                View all courses →
               </button>
             </div>
 
@@ -209,7 +229,7 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
                 />
               ))}
             </div>
-          </>
+          </section>
         )}
 
         {/* EDIT MODAL */}
@@ -277,11 +297,10 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
               className="modal-content"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2>Delete this course?</h2>
+              <h2>Move this course to Trash?</h2>
 
               <p className="modal-warning">
-                This will permanently delete the course and all of its
-                associated files and notes.
+                This course will be moved to Trash and retained for 24 hours before permanent deletion.
               </p>
 
               {deleteError && (
@@ -303,7 +322,7 @@ function Dashboard({ courses, coursesLoading, coursesError, onEditCourse, onDele
                   disabled={deletingCourse}
                   className="modal-delete-button"
                 >
-                  {deletingCourse ? "Deleting..." : "Delete Course"}
+                  {deletingCourse ? "Moving to Trash..." : "Move to Trash"}
                 </button>
               </div>
             </div>
@@ -325,23 +344,49 @@ function App() {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [coursesError, setCoursesError] = useState("");
 
-  // Fetch all courses from Supabase (includes last_accessed_at for Dashboard ordering).
-  const fetchCourses = useCallback(async () => {
-    const { data, error: fetchError } = await supabase
-      .from("courses")
-      .select("id, name, code, last_accessed_at, created_at");
+  // Initialize saved theme on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("coursecloud_theme") || "light";
+    document.documentElement.setAttribute("data-theme", savedTheme);
+  }, []);
 
-    if (fetchError) {
-      setCoursesError(fetchError.message);
-    } else {
+  // Fetch all active courses via REST API (GET /api/courses).
+  const fetchCourses = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setCourses([]);
+      setCoursesLoading(false);
+      return;
+    }
+
+    try {
+      const data = await getCourses();
       setCourses(data ?? []);
       setCoursesError("");
+    } catch (err) {
+      setCoursesError(err.message);
+    } finally {
+      setCoursesLoading(false);
     }
-    setCoursesLoading(false);
   }, []);
 
   useEffect(() => {
     fetchCourses();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        fetchCourses();
+      } else {
+        setCourses([]);
+        setCoursesLoading(false);
+      }
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, [fetchCourses]);
 
   // -------------------------
@@ -365,6 +410,14 @@ function App() {
   // Add a newly created course to the list.
   const handleAddCourse = useCallback((newCourse) => {
     setCourses((prev) => [...prev, newCourse]);
+  }, []);
+
+  // Restore a course back to the active list from Trash.
+  const handleRestoreCourse = useCallback((restoredCourse) => {
+    setCourses((prev) => {
+      if (prev.some((c) => c.id === restoredCourse.id)) return prev;
+      return [...prev, restoredCourse];
+    });
   }, []);
 
   // Update last_accessed_at for a course (called when CoursePage opens).
@@ -447,6 +500,26 @@ function App() {
           element={
             <ProtectedRoute>
               <FilesPage courses={courses} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Settings */}
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Trash */}
+        <Route
+          path="/trash"
+          element={
+            <ProtectedRoute>
+              <TrashPage courses={courses} onRestoreCourse={handleRestoreCourse} />
             </ProtectedRoute>
           }
         />

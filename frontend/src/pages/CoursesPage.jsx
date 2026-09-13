@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Header from "../components/Header";
 import CourseCard from "../components/CourseCard";
-import { supabase } from "../lib/supabaseClient";
+import { createCourse, updateCourse, deleteCourse } from "../lib/courseApi";
 
 function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDeleteCourse }) {
   // -------------------------
@@ -25,41 +25,24 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
 
     setAddingCourse(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setAddError("Unable to determine current user.");
-      setAddingCourse(false);
-      return;
-    }
-
-    // Insert and select the new row back so we get the DB-generated id, created_at, etc.
-    const { data: newRows, error: insertError } = await supabase
-      .from("courses")
-      .insert({
+    try {
+      const newCourse = await createCourse({
         name: courseName.trim(),
         code: courseCode.trim(),
-        user_id: user.id,
-      })
-      .select("id, name, code, last_accessed_at, created_at");
+      });
 
-    if (insertError) {
-      setAddError(`Failed to add course: ${insertError.message}`);
+      if (newCourse) {
+        onAddCourse(newCourse);
+      }
+
+      setCourseName("");
+      setCourseCode("");
+      setShowAddModal(false);
+    } catch (err) {
+      setAddError(`Failed to add course: ${err.message}`);
+    } finally {
       setAddingCourse(false);
-      return;
     }
-
-    // Immediately add the new course to shared state.
-    if (newRows && newRows.length > 0) {
-      onAddCourse(newRows[0]);
-    }
-
-    setCourseName("");
-    setCourseCode("");
-    setShowAddModal(false);
-    setAddingCourse(false);
   }
 
   function handleCancelAdd() {
@@ -102,28 +85,24 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
 
     setEditingCourse(true);
 
-    const { error: updateError } = await supabase
-      .from("courses")
-      .update({
+    try {
+      await updateCourse(editingCourseId, {
         name: editName.trim(),
         code: editCode.trim(),
-      })
-      .eq("id", editingCourseId);
+      });
 
-    if (updateError) {
-      setEditError(`Failed to update course: ${updateError.message}`);
+      // Update shared state immediately.
+      onEditCourse(editingCourseId, { name: editName.trim(), code: editCode.trim() });
+
+      setEditName("");
+      setEditCode("");
+      setEditingCourseId(null);
+      setShowEditModal(false);
+    } catch (err) {
+      setEditError(`Failed to update course: ${err.message}`);
+    } finally {
       setEditingCourse(false);
-      return;
     }
-
-    // Update shared state immediately.
-    onEditCourse(editingCourseId, { name: editName.trim(), code: editCode.trim() });
-
-    setEditName("");
-    setEditCode("");
-    setEditingCourseId(null);
-    setShowEditModal(false);
-    setEditingCourse(false);
   }
 
   function handleCancelEdit() {
@@ -153,23 +132,19 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
     setDeleteError("");
     setDeletingCourse(true);
 
-    const { error: deleteErr } = await supabase
-      .from("courses")
-      .delete()
-      .eq("id", deletingCourseId);
+    try {
+      await deleteCourse(deletingCourseId);
 
-    if (deleteErr) {
-      setDeleteError(`Failed to delete course: ${deleteErr.message}`);
+      // Remove from shared state immediately.
+      onDeleteCourse(deletingCourseId);
+
+      setDeletingCourseId(null);
+      setShowDeleteModal(false);
+    } catch (err) {
+      setDeleteError(`Failed to move course to Trash: ${err.message}`);
+    } finally {
       setDeletingCourse(false);
-      return;
     }
-
-    // Remove from shared state immediately.
-    onDeleteCourse(deletingCourseId);
-
-    setDeletingCourseId(null);
-    setShowDeleteModal(false);
-    setDeletingCourse(false);
   }
 
   function handleCancelDelete() {
@@ -190,7 +165,7 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
         <div className="dashboard-header">
           <div>
             <h1>Courses</h1>
-            <p>Manage all your courses</p>
+            <p>Manage all your courses and academic subjects</p>
           </div>
           <button
             className="add-course-button"
@@ -203,23 +178,34 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
         {loading && <p>Loading courses...</p>}
         {error && <p>Unable to load courses: {error}</p>}
         {!loading && !error && (
-          <div className="coursegrid">
+          <div className="courses-page-content">
             {courses.length === 0 ? (
-              <p style={{ color: "#999", gridColumn: "1 / -1" }}>
-                No courses yet. Click &ldquo;+ Add Course&rdquo; to get
-                started.
-              </p>
+              <div className="dashboard-empty-state">
+                <div className="dashboard-empty-icon" aria-hidden="true">📚</div>
+                <h2 className="dashboard-empty-title">No courses yet</h2>
+                <p className="dashboard-empty-message">
+                  Create your first course to begin organizing your lecture notes and files.
+                </p>
+                <button
+                  className="dashboard-get-started-button"
+                  onClick={() => setShowAddModal(true)}
+                >
+                  + Add Course
+                </button>
+              </div>
             ) : (
-              courses.map((course) => (
-                <CourseCard
-                  key={course.id}
-                  id={course.id}
-                  name={course.name}
-                  code={course.code}
-                  onEdit={handleEditCourse}
-                  onDelete={handleDeleteCourse}
-                />
-              ))
+              <div className="coursegrid">
+                {courses.map((course) => (
+                  <CourseCard
+                    key={course.id}
+                    id={course.id}
+                    name={course.name}
+                    code={course.code}
+                    onEdit={handleEditCourse}
+                    onDelete={handleDeleteCourse}
+                  />
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -347,11 +333,10 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
               className="modal-content"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2>Delete this course?</h2>
+              <h2>Move this course to Trash?</h2>
 
               <p className="modal-warning">
-                This will permanently delete the course and all of its
-                associated files and notes.
+                This course will be moved to Trash and retained for 24 hours before permanent deletion.
               </p>
 
               {deleteError && (
@@ -373,7 +358,7 @@ function CoursesPage({ courses, loading, error, onAddCourse, onEditCourse, onDel
                   disabled={deletingCourse}
                   className="modal-delete-button"
                 >
-                  {deletingCourse ? "Deleting..." : "Delete Course"}
+                  {deletingCourse ? "Moving to Trash..." : "Move to Trash"}
                 </button>
               </div>
             </div>

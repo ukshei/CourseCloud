@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
-import { supabase } from "../lib/supabaseClient";
+import { getFiles, uploadCourseFile, getFileSignedUrl, deleteFile } from "../lib/fileApi";
 
 function FilesPage({ courses = [] }) {
   const navigate = useNavigate();
@@ -44,18 +44,14 @@ function FilesPage({ courses = [] }) {
     setFilesLoading(true);
     setFilesError("");
 
-    const { data, error: fetchError } = await supabase
-      .from("files")
-      .select("id, course_id, file_name, file_path, created_at")
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      setFilesError(fetchError.message);
-    } else {
+    try {
+      const data = await getFiles();
       setFiles(data ?? []);
+    } catch (err) {
+      setFilesError(err.message);
+    } finally {
+      setFilesLoading(false);
     }
-
-    setFilesLoading(false);
   }
 
   useEffect(() => {
@@ -136,78 +132,53 @@ function FilesPage({ courses = [] }) {
 
     setUploading(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    try {
+      const numericCourseId = Number(uploadCourseId);
+      const newFile = await uploadCourseFile(numericCourseId, selectedFile);
 
-    if (!user) {
-      setUploadError("You must be signed in to upload files.");
+      if (newFile) {
+        setFiles((prev) => [newFile, ...prev]);
+      } else {
+        await fetchFiles();
+      }
+
+      closeUploadModal();
+    } catch (err) {
+      setUploadError(`Upload failed: ${err.message}`);
+    } finally {
       setUploading(false);
-      return;
     }
-
-    const numericCourseId = Number(uploadCourseId);
-    const filePath = `${numericCourseId}/${Date.now()}-${selectedFile.name}`;
-
-    // 1. Upload to Supabase Storage
-    const { error: storageError } = await supabase.storage
-      .from("course-files")
-      .upload(filePath, selectedFile);
-
-    if (storageError) {
-      setUploadError(`Upload failed: ${storageError.message}`);
-      setUploading(false);
-      return;
-    }
-
-    // 2. Insert record into files table
-    const { data: newRows, error: dbError } = await supabase
-      .from("files")
-      .insert({
-        course_id: numericCourseId,
-        file_name: selectedFile.name,
-        file_path: filePath,
-        user_id: user.id,
-      })
-      .select("id, course_id, file_name, file_path, created_at");
-
-    if (dbError) {
-      // Rollback: remove the file from Storage so no orphaned file is left behind
-      await supabase.storage.from("course-files").remove([filePath]);
-      setUploadError(
-        `File uploaded, but database record could not be saved: ${dbError.message}`
-      );
-      setUploading(false);
-      return;
-    }
-
-    // 3. Immediately update UI state (newest first)
-    if (newRows && newRows.length > 0) {
-      setFiles((prev) => [newRows[0], ...prev]);
-    } else {
-      await fetchFiles();
-    }
-
-    setUploading(false);
-    closeUploadModal();
   }
 
   // -------------------------
   // OPEN FILE HANDLER
   // -------------------------
-  async function handleOpenFile(filePath) {
+  async function handleOpenFile(file) {
     setActionError("");
 
-    const { data, error: urlError } = await supabase.storage
-      .from("course-files")
-      .createSignedUrl(filePath, 60);
-
-    if (urlError) {
-      setActionError(`Unable to open file: ${urlError.message}`);
-      return;
+    try {
+      const fileId = typeof file === "object" ? file.id : file;
+      const { signedUrl } = await getFileSignedUrl(fileId, { download: false });
+      window.open(signedUrl, "_blank");
+    } catch (err) {
+      setActionError(`Unable to open file: ${err.message}`);
     }
+  }
 
-    window.open(data.signedUrl, "_blank");
+  async function handleDownloadFile(file) {
+    setActionError("");
+
+    try {
+      const { signedUrl } = await getFileSignedUrl(file.id, { download: true });
+      const anchor = document.createElement("a");
+      anchor.href = signedUrl;
+      anchor.download = file.file_name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch (err) {
+      setActionError(`Unable to download file: ${err.message}`);
+    }
   }
 
   // -------------------------
@@ -231,35 +202,15 @@ function FilesPage({ courses = [] }) {
     setDeleting(true);
     setDeleteError("");
 
-    // 1. Delete from Supabase Storage
-    const { error: storageError } = await supabase.storage
-      .from("course-files")
-      .remove([fileToDelete.file_path]);
-
-    if (storageError) {
-      setDeleteError(`Unable to delete file from Storage: ${storageError.message}`);
+    try {
+      await deleteFile(fileToDelete.id);
+      setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
+      closeDeleteModal();
+    } catch (err) {
+      setDeleteError(`Unable to move file to Trash: ${err.message}`);
+    } finally {
       setDeleting(false);
-      return;
     }
-
-    // 2. Delete database record
-    const { error: dbError } = await supabase
-      .from("files")
-      .delete()
-      .eq("id", fileToDelete.id);
-
-    if (dbError) {
-      setDeleteError(
-        `File deleted from Storage, but database record could not be deleted: ${dbError.message}`
-      );
-      setDeleting(false);
-      return;
-    }
-
-    // 3. Immediately remove from local state
-    setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
-    setDeleting(false);
-    closeDeleteModal();
   }
 
   // -------------------------
@@ -328,6 +279,7 @@ function FilesPage({ courses = [] }) {
         {/* EMPTY STATE — No files at all */}
         {!filesLoading && !filesError && files.length === 0 && (
           <div className="dashboard-empty-state">
+            <div className="dashboard-empty-icon" aria-hidden="true">📁</div>
             <h2 className="dashboard-empty-title">No files yet</h2>
             <p className="dashboard-empty-message">
               Upload assignments, lecture notes, or reference documents to keep your study materials organized.
@@ -355,7 +307,7 @@ function FilesPage({ courses = [] }) {
 
         {/* FILES CONTENT & FILTERS */}
         {!filesLoading && !filesError && files.length > 0 && (
-          <>
+          <div className="files-page-content">
             {/* FILTER & SEARCH BAR */}
             <div className="files-page-filter-bar">
               <div className="files-page-search-wrapper">
@@ -471,11 +423,20 @@ function FilesPage({ courses = [] }) {
                       <div className="file-actions-column">
                         <button
                           type="button"
-                          onClick={() => handleOpenFile(file.file_path)}
+                          onClick={() => handleOpenFile(file)}
                           className="file-action-button file-open-button"
                           title="Open file in new tab"
                         >
                           Open
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadFile(file)}
+                          className="file-action-button file-download-button"
+                          title={`Download ${file.file_name}`}
+                        >
+                          ↓ Download
                         </button>
 
                         {course && (
@@ -503,7 +464,7 @@ function FilesPage({ courses = [] }) {
                 })}
               </div>
             )}
-          </>
+          </div>
         )}
       </main>
 
@@ -601,10 +562,10 @@ function FilesPage({ courses = [] }) {
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>Delete this file?</h2>
+            <h2>Move this file to Trash?</h2>
 
             <p className="modal-warning">
-              Are you sure you want to delete <strong>"{fileToDelete.file_name}"</strong>? This will permanently delete the file from storage and database. This action cannot be undone.
+              Are you sure you want to move <strong>"{fileToDelete.file_name}"</strong> to Trash? It will be retained for 24 hours before permanent deletion.
             </p>
 
             {deleteError && <div className="modal-error">{deleteError}</div>}
@@ -624,7 +585,7 @@ function FilesPage({ courses = [] }) {
                 disabled={deleting}
                 className="modal-delete-button"
               >
-                {deleting ? "Deleting..." : "Delete File"}
+                {deleting ? "Moving to Trash..." : "Move to Trash"}
               </button>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
-import { supabase } from "../lib/supabaseClient";
+import { getNotes, createNote, updateNote, deleteNote } from "../lib/noteApi";
 
 function NotesPage({ courses }) {
   const navigate = useNavigate();
@@ -22,18 +22,14 @@ function NotesPage({ courses }) {
     setNotesLoading(true);
     setNotesError("");
 
-    const { data, error: fetchError } = await supabase
-      .from("notes")
-      .select("id, course_id, title, content, created_at")
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      setNotesError(fetchError.message);
-    } else {
+    try {
+      const data = await getNotes();
       setNotes(data ?? []);
+    } catch (err) {
+      setNotesError(err.message);
+    } finally {
+      setNotesLoading(false);
     }
-
-    setNotesLoading(false);
   }
 
   useEffect(() => {
@@ -99,72 +95,48 @@ function NotesPage({ courses }) {
 
     setSavingNote(true);
 
-    if (editingNoteId) {
-      // UPDATE existing note
-      const { error: updateError } = await supabase
-        .from("notes")
-        .update({
+    try {
+      if (editingNoteId) {
+        // UPDATE existing note via REST API (PATCH /api/notes/:id)
+        const updated = await updateNote(editingNoteId, {
           course_id: Number(editorCourseId),
           title: editorTitle.trim(),
           content: editorContent,
-        })
-        .eq("id", editingNoteId);
+        });
 
-      if (updateError) {
-        setEditorError(`Failed to update note: ${updateError.message}`);
-        setSavingNote(false);
-        return;
-      }
-
-      // Update the note in local state immediately.
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === editingNoteId
-            ? {
-                ...n,
-                course_id: Number(editorCourseId),
-                title: editorTitle.trim(),
-                content: editorContent,
-              }
-            : n
-        )
-      );
-    } else {
-      // CREATE new note
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setEditorError("You must be signed in to create notes.");
-        setSavingNote(false);
-        return;
-      }
-
-      const { data: newRows, error: insertError } = await supabase
-        .from("notes")
-        .insert({
+        // Update the note in local state immediately.
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === editingNoteId
+              ? (updated || {
+                  ...n,
+                  course_id: Number(editorCourseId),
+                  title: editorTitle.trim(),
+                  content: editorContent,
+                })
+              : n
+          )
+        );
+      } else {
+        // CREATE new note via REST API (POST /api/notes)
+        const newNote = await createNote({
           course_id: Number(editorCourseId),
           title: editorTitle.trim(),
           content: editorContent,
-          user_id: user.id,
-        })
-        .select("id, course_id, title, content, created_at");
+        });
 
-      if (insertError) {
-        setEditorError(`Failed to create note: ${insertError.message}`);
-        setSavingNote(false);
-        return;
+        // Prepend new note so it appears first (newest first ordering).
+        if (newNote) {
+          setNotes((prev) => [newNote, ...prev]);
+        }
       }
 
-      // Prepend new note so it appears first (newest first ordering).
-      if (newRows && newRows.length > 0) {
-        setNotes((prev) => [newRows[0], ...prev]);
-      }
+      closeEditor();
+    } catch (err) {
+      setEditorError(err.message);
+    } finally {
+      setSavingNote(false);
     }
-
-    closeEditor();
-    setSavingNote(false);
   }
 
   // -------------------------
@@ -172,41 +144,55 @@ function NotesPage({ courses }) {
   // -------------------------
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deletingNoteId, setDeletingNoteId] = useState(null);
+  const [noteToDelete, setNoteToDelete] = useState(null);
   const [deletingNote, setDeletingNote] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
-  function handleDeleteNote(noteId) {
-    setDeletingNoteId(noteId);
+  // Close modals on Escape key
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        if (showDeleteModal) {
+          handleCancelDelete();
+        } else if (showEditor) {
+          closeEditor();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showDeleteModal, showEditor]);
+
+  function handleDeleteNote(note) {
+    setNoteToDelete(note);
     setDeleteError("");
     setShowDeleteModal(true);
   }
 
   async function handleConfirmDelete() {
+    if (!noteToDelete) return;
+
     setDeleteError("");
     setDeletingNote(true);
 
-    const { error: deleteErr } = await supabase
-      .from("notes")
-      .delete()
-      .eq("id", deletingNoteId);
+    try {
+      await deleteNote(noteToDelete.id);
 
-    if (deleteErr) {
-      setDeleteError(`Failed to delete note: ${deleteErr.message}`);
+      // Remove immediately from local state.
+      setNotes((prev) => prev.filter((n) => n.id !== noteToDelete.id));
+      setNoteToDelete(null);
+      setShowDeleteModal(false);
+    } catch (err) {
+      setDeleteError(`Failed to delete note: ${err.message}`);
+    } finally {
       setDeletingNote(false);
-      return;
     }
-
-    // Remove immediately from local state.
-    setNotes((prev) => prev.filter((n) => n.id !== deletingNoteId));
-    setDeletingNoteId(null);
-    setShowDeleteModal(false);
-    setDeletingNote(false);
   }
 
   function handleCancelDelete() {
     setDeleteError("");
-    setDeletingNoteId(null);
+    setNoteToDelete(null);
     setShowDeleteModal(false);
   }
 
@@ -270,6 +256,7 @@ function NotesPage({ courses }) {
         {/* EMPTY STATE */}
         {!notesLoading && !notesError && notes.length === 0 && (
           <div className="dashboard-empty-state">
+            <div className="dashboard-empty-icon" aria-hidden="true">📝</div>
             <h2 className="dashboard-empty-title">No notes yet</h2>
             <p className="dashboard-empty-message">
               Open a course and start writing, or create a note directly here.
@@ -285,63 +272,62 @@ function NotesPage({ courses }) {
 
         {/* NOTES GRID */}
         {!notesLoading && !notesError && notes.length > 0 && (
-          <div className="notes-page-grid">
-            {notes.map((note) => {
-              const course = getCourse(note.course_id);
-              return (
-                <div key={note.id} className="notes-page-card">
-                  <div className="notes-page-card-header">
-                    <div className="notes-page-course-badge">
-                      {course ? (
-                        <>
-                          <span className="notes-page-course-name">{course.name}</span>
-                          {course.code && (
-                            <span className="notes-page-course-code">{course.code}</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="notes-page-course-name notes-page-course-unknown">
-                          Unknown course
-                        </span>
-                      )}
+          <div className="notes-page-content">
+            <div className="notes-page-grid">
+              {notes.map((note) => {
+                const course = getCourse(note.course_id);
+                return (
+                  <div key={note.id} className="notes-page-card">
+                    <div className="notes-page-card-header">
+                      <div className="notes-page-course-badge">
+                        {course ? (
+                          <>
+                            <span className="notes-page-course-name">{course.name}</span>
+                            {course.code && (
+                              <span className="notes-page-course-code">{course.code}</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="notes-page-course-name unassigned">Unassigned</span>
+                        )}
+                      </div>
+                      <span className="notes-page-date">{formatDate(note.created_at)}</span>
                     </div>
-                    <span className="notes-page-date">{formatDate(note.created_at)}</span>
-                  </div>
 
-                  <h3 className="notes-page-title">{note.title}</h3>
+                    <h3 className="notes-page-card-title">{note.title}</h3>
 
-                  {note.content && (
-                    <p className="notes-page-preview">{previewContent(note.content)}</p>
-                  )}
+                    <div className="notes-page-card-content">{previewContent(note.content)}</div>
 
-                  <div className="notes-page-actions">
-                    <button
-                      type="button"
-                      className="notes-page-action-button notes-page-edit-button"
-                      onClick={() => openEditNoteEditor(note)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="notes-page-action-button notes-page-delete-button"
-                      onClick={() => handleDeleteNote(note.id)}
-                    >
-                      Delete
-                    </button>
-                    {course && (
+                    <div className="notes-page-card-actions">
                       <button
                         type="button"
-                        className="notes-page-action-button notes-page-open-button"
-                        onClick={() => navigate(`/courses/${course.id}`)}
+                        className="notes-page-action-button"
+                        onClick={() => openEditNoteEditor(note)}
                       >
-                        Open Course →
+                        Edit
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        className="notes-page-action-button danger"
+                        onClick={() => handleDeleteNote(note)}
+                        disabled={deletingNote}
+                      >
+                        Delete
+                      </button>
+                      {course && (
+                        <button
+                          type="button"
+                          className="notes-page-action-button notes-page-open-button"
+                          onClick={() => navigate(`/courses/${course.id}`)}
+                        >
+                          Open Course →
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -455,12 +441,16 @@ function NotesPage({ courses }) {
           <div
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notes-page-delete-title"
           >
-            <h2>Delete this note?</h2>
+            <h2 id="notes-page-delete-title">Delete note?</h2>
 
             <p className="modal-warning">
-              This will permanently delete the note. This action cannot be
-              undone.
+              Are you sure you want to delete{" "}
+              <strong>&ldquo;{noteToDelete?.title}&rdquo;</strong>? This action
+              cannot be undone.
             </p>
 
             {deleteError && (
@@ -482,7 +472,7 @@ function NotesPage({ courses }) {
                 disabled={deletingNote}
                 className="modal-delete-button"
               >
-                {deletingNote ? "Deleting..." : "Delete Note"}
+                {deletingNote ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>

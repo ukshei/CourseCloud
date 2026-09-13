@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import { supabase } from "../lib/supabaseClient";
+import { updateCourse, deleteCourse } from "../lib/courseApi";
+import { getCourseNotes, createNote, updateNote, deleteNote } from "../lib/noteApi";
+import { getCourseFiles, uploadCourseFile, getFileSignedUrl, deleteFile } from "../lib/fileApi";
 
 function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onAccessCourse }) {
   const { courseId } = useParams();
@@ -46,24 +49,20 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
 
     setEditingCourse(true);
 
-    const { error: updateError } = await supabase
-      .from("courses")
-      .update({
+    try {
+      await updateCourse(numericCourseId, {
         name: editName.trim(),
         code: editCode.trim(),
-      })
-      .eq("id", numericCourseId);
+      });
 
-    if (updateError) {
-      setEditError(`Failed to update course: ${updateError.message}`);
+      // Propagate the change to the shared App courses state immediately.
+      onEditCourse(numericCourseId, { name: editName.trim(), code: editCode.trim() });
+      setShowEditModal(false);
+    } catch (err) {
+      setEditError(`Failed to update course: ${err.message}`);
+    } finally {
       setEditingCourse(false);
-      return;
     }
-
-    // Propagate the change to the shared App courses state immediately.
-    onEditCourse(numericCourseId, { name: editName.trim(), code: editCode.trim() });
-    setShowEditModal(false);
-    setEditingCourse(false);
   }
 
   function cancelEditModal() {
@@ -85,20 +84,17 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
     setDeleteError("");
     setDeletingCourse(true);
 
-    const { error: deleteErr } = await supabase
-      .from("courses")
-      .delete()
-      .eq("id", numericCourseId);
+    try {
+      await deleteCourse(numericCourseId);
 
-    if (deleteErr) {
-      setDeleteError(`Failed to delete course: ${deleteErr.message}`);
+      // Remove from shared state and navigate away.
+      onDeleteCourse(numericCourseId);
+      navigate("/courses");
+    } catch (err) {
+      setDeleteError(`Failed to move course to Trash: ${err.message}`);
+    } finally {
       setDeletingCourse(false);
-      return;
     }
-
-    // Remove from shared state and navigate away.
-    onDeleteCourse(numericCourseId);
-    navigate("/courses");
   }
 
   function cancelDeleteModal() {
@@ -119,18 +115,17 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
   const [deleting, setDeleting] = useState(false);
 
   async function fetchFiles() {
-    const { data, error: fetchError } = await supabase
-      .from("files")
-      .select("id, file_name, file_path, created_at")
-      .eq("course_id", numericCourseId);
+    setFilesLoading(true);
+    setFilesError("");
 
-    if (fetchError) {
-      setFilesError(fetchError.message);
-    } else {
+    try {
+      const data = await getCourseFiles(numericCourseId);
       setFiles(data ?? []);
+    } catch (err) {
+      setFilesError(err.message);
+    } finally {
+      setFilesLoading(false);
     }
-
-    setFilesLoading(false);
   }
 
   // -------------------------
@@ -149,20 +144,40 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
   const [savingNote, setSavingNote] = useState(false);
   const [deletingNote, setDeletingNote] = useState(false);
 
-  async function fetchNotes() {
-    const { data, error: fetchError } = await supabase
-      .from("notes")
-      .select("id, title, content, created_at")
-      .eq("course_id", numericCourseId)
-      .order("created_at", { ascending: false });
+  const [showDeleteNoteModal, setShowDeleteNoteModal] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState(null);
+  const [deleteNoteError, setDeleteNoteError] = useState("");
 
-    if (fetchError) {
-      setNotesError(fetchError.message);
-    } else {
-      setNotes(data ?? []);
+  // Close modals on Escape key
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        if (showDeleteNoteModal) {
+          closeDeleteNoteModal();
+        } else if (showEditModal) {
+          cancelEditModal();
+        } else if (showDeleteModal) {
+          cancelDeleteModal();
+        }
+      }
     }
 
-    setNotesLoading(false);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showDeleteNoteModal, showEditModal, showDeleteModal]);
+
+  async function fetchNotes() {
+    setNotesLoading(true);
+    setNotesError("");
+
+    try {
+      const data = await getCourseNotes(numericCourseId);
+      setNotes(data ?? []);
+    } catch (err) {
+      setNotesError(err.message);
+    } finally {
+      setNotesLoading(false);
+    }
   }
 
   // -------------------------
@@ -179,19 +194,22 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
   // Update last_accessed_at when this course page is opened.
   // Runs once per courseId. Errors are silently ignored so they
   // don't affect Files/Notes loading.
+  // Update last_accessed_at via REST API when this course page is opened.
+  // Runs once per courseId. Errors are silently ignored so they
+  // don't affect Files/Notes loading.
   // Also updates shared App state so Dashboard ordering reflects the visit immediately.
   useEffect(() => {
     if (!numericCourseId || isNaN(numericCourseId)) return;
 
     const timestamp = new Date().toISOString();
 
-    supabase
-      .from("courses")
-      .update({ last_accessed_at: timestamp })
-      .eq("id", numericCourseId)
+    updateCourse(numericCourseId, { last_accessed_at: timestamp })
       .then(() => {
         // Notify App so the shared courses array reflects the updated timestamp.
         onAccessCourse(numericCourseId, timestamp);
+      })
+      .catch(() => {
+        // Silently ignore to avoid disrupting Files/Notes
       });
   }, [numericCourseId]);
 
@@ -215,70 +233,48 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
     setUploading(true);
     setFilesError("");
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setFilesError("You must be signed in to upload files.");
+    try {
+      await uploadCourseFile(numericCourseId, selectedFile);
+      setSelectedFile(null);
+      await fetchFiles();
+    } catch (err) {
+      setFilesError(`Upload failed: ${err.message}`);
+    } finally {
       setUploading(false);
-      return;
     }
-
-    const filePath = `${numericCourseId}/${Date.now()}-${selectedFile.name}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("course-files")
-      .upload(filePath, selectedFile);
-
-    if (uploadError) {
-      setFilesError(`Upload failed: ${uploadError.message}`);
-      setUploading(false);
-      return;
-    }
-
-    const { error: databaseError } = await supabase.from("files").insert({
-      course_id: numericCourseId,
-      file_name: selectedFile.name,
-      file_path: filePath,
-      user_id: user.id,
-    });
-
-    if (databaseError) {
-      // Roll back the Storage upload so we don't leave an orphaned file.
-      await supabase.storage.from("course-files").remove([filePath]);
-
-      setFilesError(
-        `File uploaded, but database record failed: ${databaseError.message}`,
-      );
-      setUploading(false);
-      return;
-    }
-
-    setSelectedFile(null);
-    setUploading(false);
-
-    await fetchFiles();
   }
 
-  async function handleOpenFile(filePath) {
+  async function handleOpenFile(file) {
     setFilesError("");
 
-    const { data, error: urlError } = await supabase.storage
-      .from("course-files")
-      .createSignedUrl(filePath, 60);
-
-    if (urlError) {
-      setFilesError(`Unable to open file: ${urlError.message}`);
-      return;
+    try {
+      const fileId = typeof file === "object" ? file.id : file;
+      const { signedUrl } = await getFileSignedUrl(fileId, { download: false });
+      window.open(signedUrl, "_blank");
+    } catch (err) {
+      setFilesError(`Unable to open file: ${err.message}`);
     }
+  }
 
-    window.open(data.signedUrl, "_blank");
+  async function handleDownloadFile(file) {
+    setFilesError("");
+
+    try {
+      const { signedUrl } = await getFileSignedUrl(file.id, { download: true });
+      const anchor = document.createElement("a");
+      anchor.href = signedUrl;
+      anchor.download = file.file_name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch (err) {
+      setFilesError(`Unable to download file: ${err.message}`);
+    }
   }
 
   async function handleDeleteFile(file) {
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${file.file_name}"?`,
+      `Move "${file.file_name}" to Trash? It will be retained for 24 hours before permanent deletion.`,
     );
 
     if (!confirmed) {
@@ -288,32 +284,14 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
     setDeleting(true);
     setFilesError("");
 
-    const { error: storageError } = await supabase.storage
-      .from("course-files")
-      .remove([file.file_path]);
-
-    if (storageError) {
-      setFilesError(`Unable to delete file: ${storageError.message}`);
+    try {
+      await deleteFile(file.id);
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    } catch (err) {
+      setFilesError(`Unable to move file to Trash: ${err.message}`);
+    } finally {
       setDeleting(false);
-      return;
     }
-
-    const { error: databaseError } = await supabase
-      .from("files")
-      .delete()
-      .eq("id", file.id);
-
-    if (databaseError) {
-      setFilesError(
-        `File deleted from Storage, but database record could not be deleted: ${databaseError.message}`,
-      );
-      setDeleting(false);
-      return;
-    }
-
-    setDeleting(false);
-
-    await fetchFiles();
   }
 
   // -------------------------
@@ -353,77 +331,57 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
     setSavingNote(true);
     setNotesError("");
 
-    if (editingNoteId) {
-      const { error: updateError } = await supabase
-        .from("notes")
-        .update({
+    try {
+      if (editingNoteId) {
+        await updateNote(editingNoteId, {
           title: noteTitle.trim(),
           content: noteContent,
-        })
-        .eq("id", editingNoteId);
-
-      if (updateError) {
-        setNotesError(`Unable to update note: ${updateError.message}`);
-        setSavingNote(false);
-        return;
-      }
-    } else {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setNotesError("You must be signed in to create notes.");
-        setSavingNote(false);
-        return;
+        });
+      } else {
+        await createNote({
+          course_id: numericCourseId,
+          title: noteTitle.trim(),
+          content: noteContent,
+        });
       }
 
-      const { error: insertError } = await supabase.from("notes").insert({
-        course_id: numericCourseId,
-        title: noteTitle.trim(),
-        content: noteContent,
-        user_id: user.id,
-      });
-
-      if (insertError) {
-        setNotesError(`Unable to save note: ${insertError.message}`);
-        setSavingNote(false);
-        return;
-      }
+      closeNoteEditor();
+      await fetchNotes();
+    } catch (err) {
+      setNotesError(`Unable to save note: ${err.message}`);
+    } finally {
+      setSavingNote(false);
     }
-
-    closeNoteEditor();
-    setSavingNote(false);
-
-    await fetchNotes();
   }
 
-  async function handleDeleteNote(note) {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${note.title}"?`,
-    );
+  function openDeleteNoteModal(note) {
+    setNoteToDelete(note);
+    setDeleteNoteError("");
+    setShowDeleteNoteModal(true);
+  }
 
-    if (!confirmed) {
-      return;
-    }
+  function closeDeleteNoteModal() {
+    setNoteToDelete(null);
+    setDeleteNoteError("");
+    setShowDeleteNoteModal(false);
+  }
+
+  async function handleConfirmDeleteNote() {
+    if (!noteToDelete) return;
 
     setDeletingNote(true);
-    setNotesError("");
+    setDeleteNoteError("");
 
-    const { error: deleteError } = await supabase
-      .from("notes")
-      .delete()
-      .eq("id", note.id);
-
-    if (deleteError) {
-      setNotesError(`Unable to delete note: ${deleteError.message}`);
+    try {
+      await deleteNote(noteToDelete.id);
+      setShowDeleteNoteModal(false);
+      setNoteToDelete(null);
+      await fetchNotes();
+    } catch (err) {
+      setDeleteNoteError(`Unable to delete note: ${err.message}`);
+    } finally {
       setDeletingNote(false);
-      return;
     }
-
-    setDeletingNote(false);
-
-    await fetchNotes();
   }
 
   // -------------------------
@@ -441,32 +399,37 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
           <p>Unable to load course: {error}</p>
         ) : course ? (
           <>
-            <h1>{displayCourse.name}</h1>
-            <p>{displayCourse.code}</p>
+            <div className="dashboard-header">
+              <div>
+                <h1>{displayCourse.name}</h1>
+                <p>{displayCourse.code || "Course Workspace"}</p>
+              </div>
 
-            <div className="course-page-actions">
-              <button
-                type="button"
-                className="course-card-edit-button"
-                onClick={openEditModal}
-              >
-                ✎ Edit Course
-              </button>
-              <button
-                type="button"
-                className="course-card-delete-button"
-                onClick={() => {
-                  setDeleteError("");
-                  setShowDeleteModal(true);
-                }}
-              >
-                🗑 Delete Course
-              </button>
+              <div className="course-page-actions">
+                <button
+                  type="button"
+                  className="course-card-edit-button"
+                  onClick={openEditModal}
+                >
+                  ✎ Edit Course
+                </button>
+                <button
+                  type="button"
+                  className="course-card-delete-button"
+                  onClick={() => {
+                    setDeleteError("");
+                    setShowDeleteModal(true);
+                  }}
+                >
+                  🗑 Move to Trash
+                </button>
+              </div>
             </div>
 
-            {/* FILES */}
+            <div className="course-page-content">
+              {/* FILES */}
 
-            <section className="files-section">
+              <section className="files-section">
               <div className="files-header">
                 <h2>Files</h2>
 
@@ -537,10 +500,19 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
                       <div className="file-actions-column">
                         <button
                           type="button"
-                          onClick={() => handleOpenFile(file.file_path)}
+                          onClick={() => handleOpenFile(file)}
                           className="file-action-button file-open-button"
                         >
                           Open
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadFile(file)}
+                          className="file-action-button file-download-button"
+                          title={`Download ${file.file_name}`}
+                        >
+                          ↓ Download
                         </button>
 
                         <button
@@ -670,7 +642,7 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
 
                         <button
                           type="button"
-                          onClick={() => handleDeleteNote(note)}
+                          onClick={() => openDeleteNoteModal(note)}
                           disabled={deletingNote}
                           className="delete-note-button"
                         >
@@ -682,6 +654,7 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
                 </div>
               )}
             </section>
+            </div>
           </>
         ) : (
           <h1>Course not found</h1>
@@ -753,11 +726,10 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>Delete this course?</h2>
+            <h2>Move this course to Trash?</h2>
 
             <p className="modal-warning">
-              This will permanently delete the course and all of its
-              associated files and notes.
+              This course will be moved to Trash and retained for 24 hours before permanent deletion.
             </p>
 
             {deleteError && (
@@ -779,7 +751,50 @@ function CoursePage({ courses, loading, error, onEditCourse, onDeleteCourse, onA
                 disabled={deletingCourse}
                 className="modal-delete-button"
               >
-                {deletingCourse ? "Deleting..." : "Delete Course"}
+                {deletingCourse ? "Moving to Trash..." : "Move to Trash"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE NOTE MODAL */}
+      {showDeleteNoteModal && (
+        <div className="modal-overlay" onClick={closeDeleteNoteModal}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-note-modal-title"
+          >
+            <h2 id="delete-note-modal-title">Delete note?</h2>
+
+            <p className="modal-warning">
+              Are you sure you want to delete{" "}
+              <strong>&ldquo;{noteToDelete?.title}&rdquo;</strong>? This action cannot be undone.
+            </p>
+
+            {deleteNoteError && (
+              <div className="modal-error">{deleteNoteError}</div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={closeDeleteNoteModal}
+                disabled={deletingNote}
+                className="modal-cancel-button"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteNote}
+                disabled={deletingNote}
+                className="modal-delete-button"
+              >
+                {deletingNote ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
